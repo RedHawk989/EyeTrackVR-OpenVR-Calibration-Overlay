@@ -1,33 +1,26 @@
-#include <iostream>
-#include <ws2tcpip.h>
+#include <boost/asio.hpp>
 #include <winsock2.h>
-#pragma comment(lib, "ws2_32.lib")
 
-using std::cerr;
-using std::endl;
+void SendSock(int message) {
+    // Create a Boost.Asio I/O context
+    boost::asio::io_service io_service;
 
-int sock() {
-    SOCKET network_socket;
+    // Create a UDP socket
+    boost::asio::ip::udp::socket socket(io_service);
 
-    WSADATA wsaData;
-    int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (result != 0) {
-        // Handle error
-    }
-    network_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    // Specify the destination address and port
+    boost::asio::ip::udp::endpoint remote_endpoint(
+        boost::asio::ip::address::from_string("127.0.0.1"),  // IP address
+        12345                                                // Port number
+    );
 
-    struct sockaddr_in server_address;
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(9002);
-    inet_pton(AF_INET, "127.0.0.1", &(server_address.sin_addr));
+    // Convert the integer to network byte order
+    int net_message = htonl(message);
 
-    int connection_status = connect(network_socket, (struct sockaddr*)&server_address, sizeof(server_address));
-    if (connection_status == -1) {
-        cerr << "We failed to connect to the server" << endl;
-    }
+    // Send the integer to the specified UDP port
+    socket.open(boost::asio::ip::udp::v4());
+    socket.send_to(boost::asio::buffer(&net_message, sizeof(net_message)), remote_endpoint);
 
-    closesocket(network_socket);
-    WSACleanup();
-
-    return 0;
+    // Close the socket
+    socket.close();
 }

@@ -26,6 +26,9 @@
     <ClInclude Include="openvr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Python_Com.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="openvr_api.dll" />

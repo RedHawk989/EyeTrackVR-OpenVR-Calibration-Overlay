@@ -3,13 +3,16 @@
 #include "openvr.h"
 #include <chrono>
 #include <thread>
+#include "Python_Com.h"
+#include <cmath>
+
+
 using namespace vr;
 
-int loop_var = 10;
-int Overlay_Calib_State = 1;
+int Overlay_Calib_State = 0;
 float Overlay_Size = 1.0;
-float Overlay_X_Pos = 0.0;
-float Overlay_Y_Pos = 0.0;
+float Overlay_X_Pos = 0.8;
+float Overlay_Y_Pos = 0.8;
 float Overlay_Z_Pos = 0.0;
 bool Calibrate = true;
 
@@ -34,7 +37,7 @@ int main(int argc, char** argv) {
 
         // Print the HMD's position and the image's position
         while (Calibrate) {
-            while (Overlay_Size > 0.01) {
+            while (Overlay_Size > 0.03) {
                 Overlay_Size -= 0.01;
                 VROverlay()->SetOverlayWidthInMeters(handle, Overlay_Size);
 
@@ -47,46 +50,42 @@ int main(int argc, char** argv) {
                 VROverlay()->SetOverlayTransformTrackedDeviceRelative(handle, vr::k_unTrackedDeviceIndex_Hmd, &transform);
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));  // Pauses for 10 milliseconds
             }
-            if (Overlay_Size <= 0.01) {
-                std::cout << Overlay_Calib_State;
+
+            if (Overlay_Size <= 0.03) {
+            /* std::cout << Overlay_Calib_State;
+               std::cout << Overlay_X_Pos;
+               std::cout << Overlay_Y_Pos;
+               std::cout << "\n";
+            */
                 Overlay_Calib_State++;
+                if (Overlay_X_Pos <= 0.9 && Overlay_X_Pos >= 0.0) {
+                    Overlay_X_Pos = Overlay_X_Pos - 0.8;
+                    if (fabs(Overlay_X_Pos) < 1.3e-7) {
+                        Overlay_X_Pos = 0.0;
+                    };
+                }
+                else {
+                    Overlay_X_Pos = 0.8;
+                };
+
+                if (Overlay_Calib_State % 3 == 0) {
+                    if (Overlay_Y_Pos <= 0.9 && Overlay_Y_Pos >= 0.0) {
+                        Overlay_Y_Pos = Overlay_Y_Pos - 0.8;
+                        if (fabs(Overlay_Y_Pos) < 1.3e-7) {
+                            Overlay_Y_Pos = 0.0;
+                        };
+                    };
+                };
+
+                if (Overlay_Calib_State == 9) {
+                    Calibrate = false;
+                    VROverlay()->DestroyOverlay(handle);
+                    return 0;
+                };
+                
+                SendSock(Overlay_Calib_State);
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));  // Pauses for UDP delay
                 Overlay_Size = 1.0;
-            }
-            if (Overlay_Calib_State == 2) { //up left corner
-                Overlay_X_Pos = 0.8;
-                Overlay_Y_Pos = 0.8;
-            }
-            if (Overlay_Calib_State == 3) { //up middle
-                Overlay_X_Pos = 0.0;
-                Overlay_Y_Pos = 0.8;
-            }
-            if (Overlay_Calib_State == 4) { // up right corner
-                Overlay_X_Pos = -0.8;
-                Overlay_Y_Pos = 0.8;
-            }
-            if (Overlay_Calib_State == 5) { //middle left corner
-                Overlay_X_Pos = -0.8;
-                Overlay_Y_Pos = 0.0;
-            }
-            if (Overlay_Calib_State == 6) { //middle right corner
-                Overlay_X_Pos = 0.8;
-                Overlay_Y_Pos = 0.0;
-            }
-            if (Overlay_Calib_State == 7) { //bottom left corner
-                Overlay_X_Pos = 0.8;
-                Overlay_Y_Pos = -0.8;
-            }
-            if (Overlay_Calib_State == 8) { //bottom middle corner
-                Overlay_X_Pos = 0.0;
-                Overlay_Y_Pos = -0.8;
-            }
-            if (Overlay_Calib_State == 9) { //bottom right corner
-                Overlay_X_Pos = -0.8;
-                Overlay_Y_Pos = -0.8;
-            }
-            if (Overlay_Calib_State > 9) { //bottom right corner
-                Calibrate = false;
-                VROverlay()->DestroyOverlay(handle);
             }
         }
     }
