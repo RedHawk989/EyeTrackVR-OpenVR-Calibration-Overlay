@@ -33,6 +33,10 @@ int main(int argc, char** argv) {
     VROverlay()->ShowOverlay(handle);
     TrackedDevicePose_t trackedDevicePose[1];
 
+    if (strcmp(argv[1], "center") == 0) {
+        std::cout << "Center Only..." << std::endl;
+    }
+
     while (true) {
 
         // Print the HMD's position and the image's position
