@@ -15,17 +15,29 @@ float Overlay_X_Pos = 0.8;
 float Overlay_Y_Pos = 0.8;
 float Overlay_Z_Pos = 0.0;
 bool Calibrate = true;
+bool Center_Only = false;
 
 void check_error(int line, EVRInitError error) { if (error != 0) printf("%d: error %s\n", line, VR_GetVRInitErrorAsSymbol(error)); }
 
 int main(int argc, char** argv) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
+    std::cout << "Welcome to the EyeTrackVR OpenVR Calibration Overlay!" << std::endl;
+
+    if (argc > 1 && std::string(argv[1]) == "center") {
+        std::cout << "[INFO] Calibrate Center Point Only" << std::endl;
+        Center_Only = true;
+        Overlay_X_Pos = 0.0;
+        Overlay_Y_Pos = 0.0;
+        Overlay_Size = 2.5;
+
+    }
     EVRInitError error;
     VR_Init(&error, vr::VRApplication_Overlay);
     check_error(__LINE__, error);
 
     VROverlayHandle_t handle;
-    std::cout << "Start:";
+    std::cout << "[INFO] Calibrating..." << std::endl;
 
     VROverlay()->CreateOverlay("image", "image", &handle); /* key has to be unique, name doesn't matter */
     VROverlay()->SetOverlayFromFile(handle, "C:/Users/beaul/Downloads/Purple_Dot.png");
@@ -33,9 +45,6 @@ int main(int argc, char** argv) {
     VROverlay()->ShowOverlay(handle);
     TrackedDevicePose_t trackedDevicePose[1];
 
-    if (strcmp(argv[1], "center") == 0) {
-        std::cout << "Center Only..." << std::endl;
-    }
 
     while (true) {
 
@@ -55,8 +64,15 @@ int main(int argc, char** argv) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));  // Pauses for 10 milliseconds
             }
 
+            if (Center_Only == true) {
+                std::cout << "[INFO] Done!" << std::endl;
+                return 0;
+            }
+
             if (Overlay_Size <= 0.03) {
-            /* std::cout << Overlay_Calib_State;
+                std::cout << "[INFO] Calibrated point: ";
+                std::cout << Overlay_Calib_State + 1 << std::endl;
+            /*
                std::cout << Overlay_X_Pos;
                std::cout << Overlay_Y_Pos;
                std::cout << "\n";
@@ -84,6 +100,7 @@ int main(int argc, char** argv) {
                 if (Overlay_Calib_State == 9) {
                     Calibrate = false;
                     VROverlay()->DestroyOverlay(handle);
+                    std::cout << "[INFO] Done!" << std::endl;
                     return 0;
                 };
                 
