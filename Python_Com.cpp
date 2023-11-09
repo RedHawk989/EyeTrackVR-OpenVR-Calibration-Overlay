@@ -11,7 +11,7 @@ void SendSock(int message) {
     // Specify the destination address and port
     boost::asio::ip::udp::endpoint remote_endpoint(
         boost::asio::ip::address::from_string("127.0.0.1"),  // IP address
-        12345                                                // Port number
+        2112                                                // Port number
     );
 
     // Convert the integer to network byte order

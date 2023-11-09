@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
     std::cout << "Welcome to the EyeTrackVR OpenVR Calibration Overlay!" << std::endl;
 
     if (argc > 1 && std::string(argv[1]) == "center") {
-        std::cout << "[INFO] Calibrate Center Point Only" << std::endl;
+        std::cout << "[INFO] Calibrate Center Point Only:" << std::endl;
         Center_Only = true;
         Overlay_X_Pos = 0.0;
         Overlay_Y_Pos = 0.0;
@@ -40,15 +40,12 @@ int main(int argc, char** argv) {
     std::cout << "[INFO] Calibrating..." << std::endl;
 
     VROverlay()->CreateOverlay("image", "image", &handle); /* key has to be unique, name doesn't matter */
-    VROverlay()->SetOverlayFromFile(handle, "C:/Users/beaul/Downloads/Purple_Dot.png");
+    VROverlay()->SetOverlayFromFile(handle, "C:/Users/beaul/Downloads/Purple_Dot.png"); // we need to bundle this image or use relitive path not fixed path.
     VROverlay()->SetOverlayWidthInMeters(handle, 2);
     VROverlay()->ShowOverlay(handle);
     TrackedDevicePose_t trackedDevicePose[1];
 
-
     while (true) {
-
-        // Print the HMD's position and the image's position
         while (Calibrate) {
             while (Overlay_Size > 0.03) {
                 Overlay_Size -= 0.01;
@@ -61,7 +58,7 @@ int main(int argc, char** argv) {
                 };
 
                 VROverlay()->SetOverlayTransformTrackedDeviceRelative(handle, vr::k_unTrackedDeviceIndex_Hmd, &transform);
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));  // Pauses for 10 milliseconds
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));  // Pause for 1 milliseconds
             }
 
             if (Center_Only == true) {
@@ -105,7 +102,7 @@ int main(int argc, char** argv) {
                 };
                 
                 SendSock(Overlay_Calib_State);
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));  // Pauses for UDP delay
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));  // Pause for UDP delay
                 Overlay_Size = 1.0;
             }
         }
