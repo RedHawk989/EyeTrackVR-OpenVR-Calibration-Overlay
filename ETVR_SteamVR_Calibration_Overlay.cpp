@@ -5,9 +5,12 @@
 #include <thread>
 #include "Python_Com.h"
 #include <cmath>
-
+#define _SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING
+#include <experimental/filesystem>
 
 using namespace vr;
+
+namespace fs = std::experimental::filesystem;
 
 int Overlay_Calib_State = 0;
 float Overlay_Size = 1.0;
@@ -40,7 +43,12 @@ int main(int argc, char** argv) {
     std::cout << "[INFO] Calibrating..." << std::endl;
 
     VROverlay()->CreateOverlay("image", "image", &handle); /* key has to be unique, name doesn't matter */
-    VROverlay()->SetOverlayFromFile(handle, "Purple_Dot.png"); // we need to bundle this image or use relitive path not fixed path.
+    fs::path executablePath = fs::current_path();
+    fs::path imagePath = executablePath / "Purple_Dot.png";
+    const char* imagePathCStr = imagePath.string().c_str();
+    VROverlay()->SetOverlayFromFile(handle, imagePathCStr);
+
+    // we need to bundle this image or use relitive path not fixed path.
     VROverlay()->SetOverlayWidthInMeters(handle, 2);
     VROverlay()->ShowOverlay(handle);
     TrackedDevicePose_t trackedDevicePose[1];
