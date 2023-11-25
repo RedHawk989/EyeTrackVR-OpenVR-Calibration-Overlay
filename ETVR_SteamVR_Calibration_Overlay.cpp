@@ -41,13 +41,13 @@ int main(int argc, char** argv) {
 
     VROverlayHandle_t handle;
     std::cout << "[INFO] Calibrating..." << std::endl;
-
+   
     VROverlay()->CreateOverlay("image", "image", &handle); /* key has to be unique, name doesn't matter */
     fs::path executablePath = fs::current_path();
     fs::path imagePath = executablePath / "Purple_Dot.png";
     const char* imagePathCStr = imagePath.string().c_str();
     VROverlay()->SetOverlayFromFile(handle, imagePathCStr);
-
+    std::cout << imagePathCStr;
     // we need to bundle this image or use relitive path not fixed path.
     VROverlay()->SetOverlayWidthInMeters(handle, 2);
     VROverlay()->ShowOverlay(handle);
@@ -70,6 +70,7 @@ int main(int argc, char** argv) {
             }
 
             if (Center_Only == true) {
+                SendSock(Overlay_Calib_State);
                 std::cout << "[INFO] Done!" << std::endl;
                 return 0;
             }
