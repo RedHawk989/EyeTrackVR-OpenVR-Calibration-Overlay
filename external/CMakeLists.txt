@@ -7,9 +7,7 @@ find_library(OPENVR_LIBRARIES
         ${CMAKE_CURRENT_SOURCE_DIR}/OpenVR/lib
     PATH_SUFFIXES
         win64
-        win32
         linux64
-        linux32
     NO_DEFAULT_PATH
     NO_CMAKE_FIND_ROOT_PATH
     REQUIRED
@@ -25,9 +23,7 @@ find_file(OPENVR_RUNTIME
         ${CMAKE_CURRENT_SOURCE_DIR}/OpenVR/lib
     PATH_SUFFIXES
         win64
-        win32
         linux64
-        linux32
     NO_DEFAULT_PATH
     NO_CMAKE_FIND_ROOT_PATH
     REQUIRED

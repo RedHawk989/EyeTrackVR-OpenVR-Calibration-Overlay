@@ -106,5 +106,6 @@ int main(int argc, char **argv)
 
     VROverlay()->DestroyOverlay(handle);
     std::cout << "[INFO] Done!" << std::endl;
+    VR_Shutdown();
     return 0;
 }
