@@ -10,7 +10,6 @@
 using namespace vr;
 namespace fs = std::filesystem;
 
-bool Calibrate = true;
 bool Center_Only = false;
 float Overlay_Size = 1.0f;
 float Overlay_X_Pos = 0.8f;
@@ -52,74 +51,60 @@ int main(int argc, char **argv)
     VROverlay()->ShowOverlay(handle);
 
     std::cout << "[INFO] Calibrating..." << std::endl;
-    while (true)
-    {
-        while (Calibrate)
-        {
-            while (Overlay_Size > 0.03)
-            {
-                Overlay_Size -= 0.01f;
-                VROverlay()->SetOverlayWidthInMeters(handle, Overlay_Size);
+    while (Overlay_Calib_State < 9) {
+        // animation
+        while (Overlay_Size > 0.03) {
+            Overlay_Size -= 0.01f;
+            VROverlay()->SetOverlayWidthInMeters(handle, Overlay_Size);
 
-                vr::HmdMatrix34_t transform = {
-                    1.0f, 0.0f, 0.0f, Overlay_X_Pos,
-                    0.0f, 1.0f, 0.0f, Overlay_Y_Pos,
-                    0.0f, 0.0f, 1.0f, -2.0f};
+            vr::HmdMatrix34_t transform = {
+                1.0f, 0.0f, 0.0f, Overlay_X_Pos,
+                0.0f, 1.0f, 0.0f, Overlay_Y_Pos,
+                0.0f, 0.0f, 1.0f, -2.0f
+            };
 
-                VROverlay()->SetOverlayTransformTrackedDeviceRelative(handle, vr::k_unTrackedDeviceIndex_Hmd, &transform);
-                std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Pause for 1 milliseconds
-            }
+            VROverlay()->SetOverlayTransformTrackedDeviceRelative(handle, vr::k_unTrackedDeviceIndex_Hmd, &transform);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Pause for 1 milliseconds
+        }
 
-            if (Center_Only == true)
-            {
-                SendSock(Overlay_Calib_State);
-                std::cout << "[INFO] Done!" << std::endl;
-                return 0;
-            }
+        if (Center_Only == true) {
+            SendSock(Overlay_Calib_State);
+            std::cout << "[INFO] Done!" << std::endl;
+            return 0;
+        }
 
-            if (Overlay_Size <= 0.03)
-            {
-                std::cout << "[INFO] Calibrated point: ";
-                std::cout << Overlay_Calib_State + 1 << std::endl;
+        if (Overlay_Size <= 0.03) {
+            std::cout << "[INFO] Calibrated point: ";
+            std::cout << Overlay_Calib_State + 1 << std::endl;
 
-                Overlay_Calib_State++;
-                if (Overlay_X_Pos <= 0.9 && Overlay_X_Pos >= 0.0)
+            Overlay_Calib_State++;
+            if (Overlay_X_Pos <= 0.9 && Overlay_X_Pos >= 0.0) {
+                Overlay_X_Pos = Overlay_X_Pos - 0.8f;
+                if (fabs(Overlay_X_Pos) < 1.3e-7)
                 {
-                    Overlay_X_Pos = Overlay_X_Pos - 0.8f;
-                    if (fabs(Overlay_X_Pos) < 1.3e-7)
-                    {
-                        Overlay_X_Pos = 0.0;
-                    };
-                }
-                else
-                {
-                    Overlay_X_Pos = 0.8f;
+                    Overlay_X_Pos = 0.0;
                 };
+            }
+            else {
+                Overlay_X_Pos = 0.8f;
+            };
 
-                if (Overlay_Calib_State % 3 == 0)
-                {
-                    if (Overlay_Y_Pos <= 0.9 && Overlay_Y_Pos >= 0.0)
-                    {
-                        Overlay_Y_Pos = Overlay_Y_Pos - 0.8f;
-                        if (fabs(Overlay_Y_Pos) < 1.3e-7)
-                        {
-                            Overlay_Y_Pos = 0.0;
-                        };
+            if (Overlay_Calib_State % 3 == 0) {
+                if (Overlay_Y_Pos <= 0.9 && Overlay_Y_Pos >= 0.0) {
+                    Overlay_Y_Pos = Overlay_Y_Pos - 0.8f;
+                    if (fabs(Overlay_Y_Pos) < 1.3e-7) {
+                        Overlay_Y_Pos = 0.0;
                     };
                 };
+            };
 
-                if (Overlay_Calib_State == 9)
-                {
-                    Calibrate = false;
-                    VROverlay()->DestroyOverlay(handle);
-                    std::cout << "[INFO] Done!" << std::endl;
-                    return 0;
-                };
-
-                SendSock(Overlay_Calib_State);
-                std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Pause for UDP delay
-                Overlay_Size = 1.0;
-            }
+            SendSock(Overlay_Calib_State);
+            std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Pause for UDP delay
+            Overlay_Size = 1.0;
         }
     }
+
+    VROverlay()->DestroyOverlay(handle);
+    std::cout << "[INFO] Done!" << std::endl;
+    return 0;
 }
