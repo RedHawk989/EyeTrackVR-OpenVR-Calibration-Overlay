@@ -5,26 +5,18 @@
 #include <thread>
 #include "python_com.h"
 #include <cmath>
-#define _SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING
-#include <experimental/filesystem>
+#include <filesystem>
 
 using namespace vr;
+namespace fs = std::filesystem;
 
-namespace fs = std::experimental::filesystem;
-
-int Overlay_Calib_State = 0;
-float Overlay_Size = 1.0;
-float Overlay_X_Pos = 0.8;
-float Overlay_Y_Pos = 0.8;
-float Overlay_Z_Pos = 0.0;
 bool Calibrate = true;
 bool Center_Only = false;
-
-void check_error(int line, EVRInitError error)
-{
-    if (error != 0)
-        printf("%d: error %s\n", line, VR_GetVRInitErrorAsSymbol(error));
-}
+float Overlay_Size = 1.0f;
+float Overlay_X_Pos = 0.8f;
+float Overlay_Y_Pos = 0.8f;
+float Overlay_Z_Pos = 0.0f;
+int Overlay_Calib_State = 0;
 
 int main(int argc, char **argv)
 {
@@ -38,31 +30,35 @@ int main(int argc, char **argv)
         Overlay_Y_Pos = 0.0;
         Overlay_Size = 2.5;
     }
+
+    const fs::path imagePath = fs::absolute("assets/Purple_Dot.png");
+    std::cout << "[INFO] Loading image: " << imagePath << std::endl;
+    if (!fs::exists(imagePath)) {
+        std::cout << "[ERROR] Image not found: " << imagePath << std::endl;
+        return 1;
+    }
+
     EVRInitError error;
     VR_Init(&error, vr::VRApplication_Overlay);
-    check_error(__LINE__, error);
+    if (error != 0) {
+        printf("error %s\n", VR_GetVRInitErrorAsSymbol(error));
+        return 1;
+    }
 
     VROverlayHandle_t handle;
-    std::cout << "[INFO] Calibrating..." << std::endl;
-
-    VROverlay()->CreateOverlay("image", "image", &handle); /* key has to be unique, name doesn't matter */
-    fs::path executablePath = fs::current_path();
-    fs::path imagePath = executablePath / "Purple_Dot.png";
-    const char *imagePathCStr = imagePath.string().c_str();
-    VROverlay()->SetOverlayFromFile(handle, imagePathCStr);
-    std::cout << imagePathCStr;
-    // we need to bundle this image or use relitive path not fixed path.
+    VROverlay()->CreateOverlay("EyeTrackVR", "Overlay", &handle);
+    VROverlay()->SetOverlayFromFile(handle, imagePath.string().c_str());
     VROverlay()->SetOverlayWidthInMeters(handle, 2);
     VROverlay()->ShowOverlay(handle);
-    TrackedDevicePose_t trackedDevicePose[1];
 
+    std::cout << "[INFO] Calibrating..." << std::endl;
     while (true)
     {
         while (Calibrate)
         {
             while (Overlay_Size > 0.03)
             {
-                Overlay_Size -= 0.01;
+                Overlay_Size -= 0.01f;
                 VROverlay()->SetOverlayWidthInMeters(handle, Overlay_Size);
 
                 vr::HmdMatrix34_t transform = {
@@ -85,15 +81,11 @@ int main(int argc, char **argv)
             {
                 std::cout << "[INFO] Calibrated point: ";
                 std::cout << Overlay_Calib_State + 1 << std::endl;
-                /*
-                   std::cout << Overlay_X_Pos;
-                   std::cout << Overlay_Y_Pos;
-                   std::cout << "\n";
-                */
+
                 Overlay_Calib_State++;
                 if (Overlay_X_Pos <= 0.9 && Overlay_X_Pos >= 0.0)
                 {
-                    Overlay_X_Pos = Overlay_X_Pos - 0.8;
+                    Overlay_X_Pos = Overlay_X_Pos - 0.8f;
                     if (fabs(Overlay_X_Pos) < 1.3e-7)
                     {
                         Overlay_X_Pos = 0.0;
@@ -101,14 +93,14 @@ int main(int argc, char **argv)
                 }
                 else
                 {
-                    Overlay_X_Pos = 0.8;
+                    Overlay_X_Pos = 0.8f;
                 };
 
                 if (Overlay_Calib_State % 3 == 0)
                 {
                     if (Overlay_Y_Pos <= 0.9 && Overlay_Y_Pos >= 0.0)
                     {
-                        Overlay_Y_Pos = Overlay_Y_Pos - 0.8;
+                        Overlay_Y_Pos = Overlay_Y_Pos - 0.8f;
                         if (fabs(Overlay_Y_Pos) < 1.3e-7)
                         {
                             Overlay_Y_Pos = 0.0;

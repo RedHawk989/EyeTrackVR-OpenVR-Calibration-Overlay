@@ -24,5 +24,5 @@ add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
 )
 add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${PROJECT_SOURCE_DIR}/src/assets" $<TARGET_FILE_DIR:EyeTrackVR-Overlay>
+        "${PROJECT_SOURCE_DIR}/src/assets" $<TARGET_FILE_DIR:EyeTrackVR-Overlay>/assets
 )
