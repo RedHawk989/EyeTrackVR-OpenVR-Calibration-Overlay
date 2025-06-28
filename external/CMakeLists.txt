@@ -1,4 +1,4 @@
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/boost)
+
 find_library(OPENVR_LIBRARIES
     NAMES
         openvr_api
