@@ -81,7 +81,7 @@ int main(int argc, char **argv)
             };
 
             VROverlay()->SetOverlayTransformTrackedDeviceRelative(handle, vr::k_unTrackedDeviceIndex_Hmd, &transform);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Pause for 1 milliseconds
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Pause for 10 milliseconds
         }
 
         if (Center_Only == true) {
