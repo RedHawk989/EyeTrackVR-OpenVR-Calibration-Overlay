@@ -5,8 +5,9 @@
 #include <thread>
 #include <cmath>
 #include <filesystem>
-#include <zmq.hpp> // cppzmq header
 #include <string>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 
 // For my own reference when I come back to this a year later
 // cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=C:/Users/beaul/vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -25,17 +26,48 @@ int Overlay_Calib_State = 0;
 int main(int argc, char **argv)
 {
 
-    const std::string endpoint = "tcp://127.0.0.1:5555"; // Changed to localhost for connecting
+    const std::string endpoint_host = "127.0.0.1";
+    const uint16_t endpoint_port = 2112;
 
-    // Initialize the 0MQ context
-    zmq::context_t context(1); // 1 I/O thread is common for basic usage
+    WSADATA wsaData{};
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::cout << "[ERROR] WSAStartup failed." << std::endl;
+        return 1;
+    }
 
-    // Generate a REQ socket (requester)
-    zmq::socket_t socket(context, zmq::socket_type::req);
+    SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock == INVALID_SOCKET) {
+        std::cout << "[ERROR] Failed to create UDP socket." << std::endl;
+        WSACleanup();
+        return 1;
+    }
 
-    // Connect the socket
-    std::cout << "Connecting to " << endpoint << std::endl;
-    socket.connect(endpoint);
+    sockaddr_in endpoint_addr{};
+    endpoint_addr.sin_family = AF_INET;
+    endpoint_addr.sin_port = htons(endpoint_port);
+    if (inet_pton(AF_INET, endpoint_host.c_str(), &endpoint_addr.sin_addr) != 1) {
+        std::cout << "[ERROR] Invalid endpoint address." << std::endl;
+        closesocket(sock);
+        WSACleanup();
+        return 1;
+    }
+
+    auto send_int = [&](int32_t value) {
+        int32_t network_value = htonl(value);
+        int sent = sendto(
+            sock,
+            reinterpret_cast<const char*>(&network_value),
+            sizeof(network_value),
+            0,
+            reinterpret_cast<const sockaddr*>(&endpoint_addr),
+            sizeof(endpoint_addr)
+        );
+        if (sent != sizeof(network_value)) {
+            std::cout << "[WARN] Failed to send calibration message." << std::endl;
+        }
+    };
+
+    std::cout << "Sending to udp://" << endpoint_host << ":" << endpoint_port << std::endl;
     std::cout << "Welcome to the EyeTrackVR OpenVR Calibration Overlay!" << std::endl;
 
     if (argc > 1 && std::string(argv[1]) == "center")
@@ -60,9 +92,34 @@ int main(int argc, char **argv)
         printf("error %s\n", VR_GetVRInitErrorAsSymbol(error));
         return 1;
     }
+    bool vr_initialized = true;
+    bool wsa_initialized = true;
 
-    VROverlayHandle_t handle;
-    VROverlay()->CreateOverlay("EyeTrackVR", "Overlay", &handle);
+    VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
+    bool overlay_created = false;
+    auto cleanup = [&]() {
+        if (overlay_created) {
+            VROverlay()->HideOverlay(handle);
+            VROverlay()->DestroyOverlay(handle);
+            overlay_created = false;
+        }
+        if (vr_initialized) {
+            VR_Shutdown();
+            vr_initialized = false;
+        }
+        if (wsa_initialized) {
+            closesocket(sock);
+            WSACleanup();
+            wsa_initialized = false;
+        }
+    };
+
+    if (VROverlay()->CreateOverlay("EyeTrackVR", "Overlay", &handle) != vr::VROverlayError_None) {
+        std::cout << "[ERROR] Failed to create overlay." << std::endl;
+        cleanup();
+        return 1;
+    }
+    overlay_created = true;
     VROverlay()->SetOverlayFromFile(handle, imagePath.string().c_str());
     VROverlay()->SetOverlayWidthInMeters(handle, 2);
     VROverlay()->ShowOverlay(handle);
@@ -85,18 +142,11 @@ int main(int argc, char **argv)
         }
 
         if (Center_Only == true) {
-            // Send the calibration state
-            std::string message_content = std::to_string(Overlay_Calib_State);
-            zmq::message_t message(message_content.data(), message_content.size());
-            socket.send(message, zmq::send_flags::none);
-
-            // REQ sockets *must* receive a reply after sending
-            zmq::message_t reply;
-            socket.recv(reply, zmq::recv_flags::none); // BLOCKING: waits for reply
-            std::string reply_content = reply.to_string();
-            std::cout << "[INFO] Received ACK for Center Only: " << reply_content << std::endl;
+            // Send completion for center-only (Python expects int 9)
+            send_int(9);
 
             std::cout << "[INFO] Done!" << std::endl;
+            cleanup();
             return 0;
         }
 
@@ -104,16 +154,8 @@ int main(int argc, char **argv)
             std::cout << "[INFO] Calibrated point: ";
             std::cout << Overlay_Calib_State + 1 << std::endl;
 
-            // Send the calibration state
-            std::string message_content = std::to_string(Overlay_Calib_State);
-            zmq::message_t message(message_content.data(), message_content.size());
-            socket.send(message, zmq::send_flags::none);
-
-            // REQ sockets *must* receive a reply after sending
-            zmq::message_t reply;
-            socket.recv(reply, zmq::recv_flags::none); // BLOCKING: waits for reply
-            std::string reply_content = reply.to_string();
-            std::cout << "[INFO] Received ACK for point " << Overlay_Calib_State + 1 << ": " << reply_content << std::endl;
+            // Send the calibration state as int
+            send_int(Overlay_Calib_State);
 
             Overlay_Calib_State++;
             if (Overlay_X_Pos <= 0.9 && Overlay_X_Pos >= 0.0) {
@@ -141,8 +183,10 @@ int main(int argc, char **argv)
         }
     }
 
-    VROverlay()->DestroyOverlay(handle);
+    // Signal completion to the Python app (expects int 9).
+    send_int(9);
+
     std::cout << "[INFO] Done!" << std::endl;
-    VR_Shutdown();
+    cleanup();
     return 0;
 }

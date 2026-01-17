@@ -18,15 +18,6 @@ set(OPENVR_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external/openvr/headers")
 set(OPENVR_LIBRARIES "${PROJECT_SOURCE_DIR}/external/openvr/lib/win64/openvr_api.lib")
 set(OPENVR_RUNTIME "${PROJECT_SOURCE_DIR}/external/openvr/bin/win64/openvr_api.dll")
 
-# Find cppzmq (and implicitly zeromq via vcpkg)
-find_package(cppzmq CONFIG REQUIRED)
-
-if(cppzmq_FOUND)
-    message(STATUS "Found cppzmq.")
-else()
-    message(FATAL_ERROR "cppzmq not found. Ensure it's installed via vcpkg.")
-endif()
-
 # Source files (using target_sources is often preferred over GLOB_RECURSE for larger projects)
 file(GLOB_RECURSE SOURCES
     "${PROJECT_SOURCE_DIR}/src/*.h"
@@ -43,7 +34,7 @@ target_include_directories(EyeTrackVR-Overlay PRIVATE
 
 target_link_libraries(EyeTrackVR-Overlay PRIVATE
     ${OPENVR_LIBRARIES} # Link the OpenVR static library
-    cppzmq              # Link cppzmq (vcpkg provides an imported target for this)
+    ws2_32              # Windows sockets for UDP communication
 )
 
 # Post-build commands for copying runtime dependencies and assets
