@@ -63,7 +63,7 @@ static constexpr int NUM_EXPRESS_TARGETS = 9;
 // ── Text overlay (GDI-rendered RGBA) ─────────────────────────────────────────
 
 static constexpr uint32_t TEXT_W = 1024;
-static constexpr uint32_t TEXT_H = 128;
+static constexpr uint32_t TEXT_H = 300;
 static std::vector<uint8_t> g_text_pixels;
 
 static void update_text(VROverlayHandle_t handle, const std::wstring& text) {
@@ -87,22 +87,31 @@ static void update_text(VROverlayHandle_t handle, const std::wstring& text) {
     if (!hbm) { DeleteDC(dc); return; }
     HBITMAP old_bm = (HBITMAP)SelectObject(dc, hbm);
 
-    RECT rect = {0, 0, (LONG)TEXT_W, (LONG)TEXT_H};
+    RECT full_rect = {0, 0, (LONG)TEXT_W, (LONG)TEXT_H};
     HBRUSH bg = CreateSolidBrush(RGB(15, 15, 25));
-    FillRect(dc, &rect, bg);
+    FillRect(dc, &full_rect, bg);
     DeleteObject(bg);
 
     SetTextColor(dc, RGB(255, 255, 255));
     SetBkMode(dc, TRANSPARENT);
 
     HFONT font = CreateFontW(
-        -56, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        -52, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI"
     );
     HFONT old_font = (HFONT)SelectObject(dc, font);
-    DrawTextW(dc, text.c_str(), -1, &rect,
-              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    // Measure the text block height so we can vertically center it.
+    RECT calc_rect = {0, 0, (LONG)TEXT_W, (LONG)TEXT_H};
+    DrawTextW(dc, text.c_str(), -1, &calc_rect,
+              DT_CENTER | DT_WORDBREAK | DT_CALCRECT);
+    int text_h   = calc_rect.bottom - calc_rect.top;
+    int top      = ((int)TEXT_H - text_h) / 2;
+    if (top < 0) top = 0;
+    RECT draw_rect = {0, top, (LONG)TEXT_W, (LONG)TEXT_H};
+    DrawTextW(dc, text.c_str(), -1, &draw_rect,
+              DT_CENTER | DT_WORDBREAK);
 
     const uint8_t* src = reinterpret_cast<const uint8_t*>(bits);
     for (uint32_t i = 0; i < TEXT_W * TEXT_H; ++i) {
@@ -155,6 +164,221 @@ static void udp_send(SOCKET sock, const sockaddr_in& addr,
 static void send_int32(SOCKET sock, const sockaddr_in& addr, int32_t v) {
     int32_t nv = htonl(v);
     udp_send(sock, addr, &nv, 4);
+}
+
+// ── Data-collect / interactive overlay modes ──────────────────────────────────
+//
+// DC_POS: 9-point capture grid (cardinals ±1.1 m, corners ±0.85 m).
+//
+// interactive mode UDP protocol (port 2112 → Python, port 2113 ← Python):
+//   Cmds received on 2113:
+//     50    → show text overlay; bytes 4+ are the UTF-8 string to display
+//     98    → hide text overlay
+//     99    → hide dot
+//     100   → normal gaze pass        (signals 0–8 + 19 on port 2112)
+//     101   → squint pass             (signals 0–8 + 19 on port 2112)
+//     102   → widen eyes pass         (signals 0–8 + 19 on port 2112)
+//     103   → raise eyebrows fully    (signals 0–8 + 19 on port 2112)
+//     104   → raise eyebrows halfway  (signals 0–8 + 19 on port 2112)
+//     105   → lower eyebrows fully    (signals 0–8 + 19 on port 2112)
+//     106   → lower eyebrows halfway  (signals 0–8 + 19 on port 2112)
+//     200   → exit
+//   Signals sent on 2112:
+//     255   → overlay ready (sent once at startup)
+//     0–8   → capture-ready at point N (during any pass)
+//     19    → current pass complete
+
+static constexpr uint16_t PORT_INTERACTIVE_CMD = 2113;
+
+// Capture-phase grid: 4 cardinal extremes + 4 diagonal corners + center
+static const float DC_POS[9][2] = {
+    { 0.0f,   0.0f},   // 0  center
+    {-1.1f,   0.0f},   // 1  left
+    { 1.1f,   0.0f},   // 2  right
+    { 0.0f,   1.1f},   // 3  up
+    { 0.0f,  -1.1f},   // 4  down
+    {-0.85f,  0.85f},  // 5  upper-left
+    { 0.85f,  0.85f},  // 6  upper-right
+    {-0.85f, -0.85f},  // 7  lower-left
+    { 0.85f, -0.85f},  // 8  lower-right
+};
+
+// Expression-guidance grid (includes diagonals for top-left / bottom-right etc.)
+static constexpr float EXPR_DOT_SIZE = 0.10f;
+static const float EXPR_POS[9][2] = {
+    { 0.0f,  0.0f},   // 0  center
+    {-0.9f,  0.0f},   // 1  left
+    { 0.9f,  0.0f},   // 2  right
+    { 0.0f,  0.9f},   // 3  up
+    { 0.0f, -0.9f},   // 4  down
+    { 0.9f,  0.9f},   // 5  upper-right
+    {-0.9f,  0.9f},   // 6  upper-left
+    { 0.9f, -0.9f},   // 7  lower-right
+    {-0.9f, -0.9f},   // 8  lower-left
+};
+
+static constexpr int   DC_TARGETS     = 9;
+static constexpr float DC_DOT_LARGE   = 0.42f;
+static constexpr float DC_DOT_SMALL   = 0.05f;
+// 0.37 m over 100 x 5 ms = 0.5 s shrink; total per dot ~1.15 s
+static constexpr float DC_SHRINK_STEP = 0.0037f;
+static constexpr int   DC_SHRINK_MS   = 5;
+static constexpr int   DC_APPEAR_MS   = 150;
+static constexpr int   DC_HOLD_MS     = 500;
+static constexpr int   DC_SQUINT_WAIT_MS = 5500;  // standalone datacollect mode only
+
+static void run_dc_phase(VROverlayHandle_t dot_h, SOCKET sock,
+                          const sockaddr_in& addr, int base_idx) {
+    for (int i = 0; i < DC_TARGETS; ++i) {
+        float px = DC_POS[i][0];
+        float py = DC_POS[i][1] + Y_BIAS;
+
+        VROverlay()->SetOverlayWidthInMeters(dot_h, DC_DOT_LARGE);
+        set_overlay_transform(dot_h, px, py);
+        std::this_thread::sleep_for(std::chrono::milliseconds(DC_APPEAR_MS));
+
+        animate_shrink(dot_h, px, py, DC_DOT_LARGE, DC_DOT_SMALL,
+                       DC_SHRINK_STEP, DC_SHRINK_MS);
+
+        send_int32(sock, addr, base_idx + i);
+        std::this_thread::sleep_for(std::chrono::milliseconds(DC_HOLD_MS));
+    }
+}
+
+static int run_datacollect(VROverlayHandle_t dot_h, VROverlayHandle_t text_h,
+                             SOCKET sock, const sockaddr_in& addr) {
+    std::wstring cur_text;
+    auto show_text = [&](const std::wstring& t) {
+        if (t != cur_text && text_h != vr::k_ulOverlayHandleInvalid) {
+            cur_text = t;
+            update_text(text_h, t);
+        }
+    };
+
+    std::cout << "[INFO] Data-collect 9-point overlay\n";
+
+    show_text(L"Follow the purple dot");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    run_dc_phase(dot_h, sock, addr, 0);
+
+    // Signal Python to announce squint phase, then wait for TTS to complete
+    send_int32(sock, addr, 9);
+    show_text(L"Squint while following the dot");
+    std::this_thread::sleep_for(std::chrono::milliseconds(DC_SQUINT_WAIT_MS));
+
+    run_dc_phase(dot_h, sock, addr, 10);
+
+    send_int32(sock, addr, 19);
+    show_text(L"Collection complete!");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+
+    std::cout << "[INFO] Data-collect done\n";
+    return 0;
+}
+
+// ── Interactive overlay mode (used by the data-collection app) ────────────────
+
+static int run_interactive(VROverlayHandle_t dot_h, VROverlayHandle_t text_h,
+                             SOCKET send_sock, const sockaddr_in& send_addr) {
+    SOCKET recv_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (recv_sock == INVALID_SOCKET) {
+        std::cout << "[ERROR] Failed to create command socket\n";
+        return 1;
+    }
+
+    BOOL reuse = TRUE;
+    setsockopt(recv_sock, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse, sizeof(reuse));
+
+    sockaddr_in cmd_addr{};
+    cmd_addr.sin_family = AF_INET;
+    cmd_addr.sin_port   = htons(PORT_INTERACTIVE_CMD);
+    if (inet_pton(AF_INET, "127.0.0.1", &cmd_addr.sin_addr) != 1
+            || bind(recv_sock, (sockaddr*)&cmd_addr, sizeof(cmd_addr)) != 0) {
+        std::cout << "[ERROR] Failed to bind command socket on port "
+                  << PORT_INTERACTIVE_CMD << "\n";
+        closesocket(recv_sock);
+        return 1;
+    }
+
+    DWORD recv_ms = 100;
+    setsockopt(recv_sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&recv_ms, sizeof(recv_ms));
+
+    std::wstring cur_text;
+    auto show_text = [&](const std::wstring& t) {
+        if (t != cur_text && text_h != vr::k_ulOverlayHandleInvalid) {
+            cur_text = t;
+            update_text(text_h, t);
+        }
+    };
+
+    std::cout << "[INFO] Interactive mode ready"
+              << " (cmd=" << PORT_INTERACTIVE_CMD
+              << " sig=" << PORT_CLASSIC << ")\n";
+
+    VROverlay()->HideOverlay(dot_h);
+    if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->HideOverlay(text_h);
+
+    // Signal Python we are ready
+    send_int32(send_sock, send_addr, 255);
+
+    int result = 0;
+    bool running = true;
+    while (running) {
+        char recv_buf[512];
+        int len = recvfrom(recv_sock, recv_buf, (int)sizeof(recv_buf) - 1, 0, nullptr, nullptr);
+
+        if (len == SOCKET_ERROR) {
+            int err = WSAGetLastError();
+            if (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK) continue;
+            std::cout << "[ERROR] recvfrom: " << err << "\n";
+            result = 1;
+            break;
+        }
+        if (len < 4) continue;
+
+        int32_t cmd = ntohl(*reinterpret_cast<const int32_t*>(recv_buf));
+
+        if (cmd == 50 && len > 4) {
+            // Python is sending a UTF-8 prompt string to display in the text overlay
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, recv_buf + 4, len - 4, nullptr, 0);
+            if (wlen > 0) {
+                std::wstring wide(wlen, 0);
+                MultiByteToWideChar(CP_UTF8, 0, recv_buf + 4, len - 4, &wide[0], wlen);
+                show_text(wide);
+                if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->ShowOverlay(text_h);
+            }
+        } else if (cmd == 98) {
+            if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->HideOverlay(text_h);
+            cur_text.clear();  // force re-render next time
+        } else if (cmd == 99) {
+            VROverlay()->HideOverlay(dot_h);
+        } else if (cmd >= 100 && cmd <= 106) {
+            static const wchar_t* const kPassText[] = {
+                L"Follow the dot",                             // 100
+                L"Squint\nfollow the dot",                     // 101
+                L"Widen eyes\nfollow the dot",                 // 102
+                L"Raise eyebrows fully\nfollow the dot",       // 103
+                L"Raise eyebrows halfway\nfollow the dot",     // 104
+                L"Lower eyebrows fully\nfollow the dot",       // 105
+                L"Lower eyebrows halfway\nfollow the dot",     // 106
+            };
+            if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->ShowOverlay(text_h);
+            show_text(kPassText[cmd - 100]);
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+            VROverlay()->ShowOverlay(dot_h);
+            run_dc_phase(dot_h, send_sock, send_addr, 0);
+            send_int32(send_sock, send_addr, 19);
+            VROverlay()->HideOverlay(dot_h);
+            if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->HideOverlay(text_h);
+            cur_text.clear();
+        } else if (cmd == 200) {
+            running = false;
+        }
+    }
+
+    closesocket(recv_sock);
+    return result;
 }
 
 // ── Classic 9-point / center-only mode ───────────────────────────────────────
@@ -303,13 +527,17 @@ static int run_ellipse(VROverlayHandle_t dot_h, VROverlayHandle_t text_h,
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
-    bool center_only  = false;
-    bool ellipse_mode = false;
+    bool center_only       = false;
+    bool ellipse_mode      = false;
+    bool datacollect_mode  = false;
+    bool interactive_mode  = false;
 
     if (argc > 1) {
         std::string arg(argv[1]);
-        if (arg == "center")       center_only  = true;
-        else if (arg == "ellipse") ellipse_mode = true;
+        if (arg == "center")            center_only      = true;
+        else if (arg == "ellipse")      ellipse_mode     = true;
+        else if (arg == "datacollect")  datacollect_mode = true;
+        else if (arg == "interactive")  interactive_mode = true;
     }
 
     // ── Winsock ───────────────────────────────────────────────────────────────
@@ -336,9 +564,11 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "EyeTrackVR OpenVR Calibration Overlay — ";
-    if (ellipse_mode)     std::cout << "ellipse";
-    else if (center_only) std::cout << "center";
-    else                  std::cout << "9-point";
+    if (ellipse_mode)           std::cout << "ellipse";
+    else if (center_only)       std::cout << "center";
+    else if (datacollect_mode)  std::cout << "datacollect";
+    else if (interactive_mode)  std::cout << "interactive";
+    else                        std::cout << "9-point";
     std::cout << " (udp://127.0.0.1:" << PORT_CLASSIC << ")\n";
 
     // ── OpenVR ────────────────────────────────────────────────────────────────
@@ -369,16 +599,16 @@ int main(int argc, char** argv) {
     set_overlay_transform(dot_h, 0.0f, 0.0f);
     VROverlay()->ShowOverlay(dot_h);
 
-    // Text overlay (ellipse mode only)
+    // Text overlay (ellipse, datacollect, and interactive modes)
     VROverlayHandle_t text_h = vr::k_ulOverlayHandleInvalid;
-    if (ellipse_mode) {
+    if (ellipse_mode || datacollect_mode || interactive_mode) {
         if (VROverlay()->CreateOverlay("EyeTrackVR.text", "Instructions", &text_h)
                 != vr::VROverlayError_None) {
             std::cout << "[WARN] Could not create text overlay — continuing without it\n";
         } else {
-            VROverlay()->SetOverlayWidthInMeters(text_h, 1.2f);
-            set_overlay_transform(text_h, 0.0f, -0.45f + Y_BIAS);
-            update_text(text_h, L"Preparing calibration...");
+            VROverlay()->SetOverlayWidthInMeters(text_h, 1.5f);
+            set_overlay_transform(text_h, 0.0f, -0.55f + Y_BIAS);
+            update_text(text_h, ellipse_mode ? L"Preparing calibration..." : L"Preparing...");
             VROverlay()->SetOverlaySortOrder(text_h, 0);
             VROverlay()->ShowOverlay(text_h);
         }
@@ -390,6 +620,10 @@ int main(int argc, char** argv) {
     int result = 0;
     if (ellipse_mode)
         result = run_ellipse(dot_h, text_h, sock, addr);
+    else if (datacollect_mode)
+        result = run_datacollect(dot_h, text_h, sock, addr);
+    else if (interactive_mode)
+        result = run_interactive(dot_h, text_h, sock, addr);
     else
         result = run_classic(dot_h, sock, addr, center_only);
 
